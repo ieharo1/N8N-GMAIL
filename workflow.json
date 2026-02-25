@@ -1,0 +1,167 @@
+{
+  "name": "N8N GMAIL - Citas Médicas",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "gmail-trigger",
+      "name": "Trigger Gmail",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "credentials": {
+        "gmailOAuth2": "gmail-creds"
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.subject }}",
+              "operation": "contains",
+              "value2": "Cita médica"
+            }
+          ]
+        }
+      },
+      "id": "filter-subject",
+      "name": "Filtrar Asunto",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const emailBody = $input.first().json.textBody || $input.first().json.htmlBody;\nconst subject = $input.first().json.subject;\nconst from = $input.first().json.from;\n\n// Extraer datos del correo\nconst pacienteMatch = emailBody.match(/(?:paciente|paciente:|nombre del paciente)\\s*:?\\s*([\\w\\s]+)/i);\nconst fechaMatch = emailBody.match(/(?:fecha|fecha:|fecha de la cita)\\s*:?\\s*(\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4})/i);\nconst horaMatch = emailBody.match(/(?:hora|hora:|hora de la cita)\\s*:?\\s*(\\d{1,2}:\\d{2})/i);\nconst consultaMatch = emailBody.match(/(?:tipo de consulta|consulta|modalidad)\\s*:?\\s*([\\w\\s]+)/i);\n\nconst result = {\n  json: {\n    paciente: pacienteMatch ? pacienteMatch[1].trim() : 'No especificado',\n    fecha: fechaMatch ? fechaMatch[1].trim() : 'No especificada',\n    hora: horaMatch ? horaMatch[1].trim() : 'No especificada',\n    tipoConsulta: consultaMatch ? consultaMatch[1].trim() : 'No especificado',\n    emailOrigen: from,\n    asunto: subject,\n    fechaRecepcion: new Date().toISOString()\n  }\n};\n\nreturn result;"
+      },
+      "id": "extract-data",
+      "name": "Extraer Datos",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 250]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "sheetId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://docs.google.com/spreadsheets/d/TU_SHEET_ID"
+        },
+        "range": "A:F",
+        "columns": {
+          "Paciente": "={{ $json.paciente }}",
+          "Fecha": "={{ $json.fecha }}",
+          "Hora": "={{ $json.hora }}",
+          "TipoConsulta": "={{ $json.tipoConsulta }}",
+          "EmailOrigen": "={{ $json.emailOrigen }}",
+          "FechaRecepcion": "={{ $json.fechaRecepcion }}"
+        },
+        "options": {}
+      },
+      "id": "save-sheets",
+      "name": "Guardar en Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 3,
+      "position": [850, 250],
+      "credentials": {
+        "googleSheetsOAuth2": "google-sheets-creds"
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.emailOrigen.match(/<(.+)>/)?.[1] || $json.emailOrigen }}",
+        "text": "=✅ *Confirmación de Cita Médica*\\n\\nPaciente: {{ $json.paciente }}\\nFecha: {{ $json.fecha }}\\nHora: {{ $json.hora }}\\nTipo de Consulta: {{ $json.tipoConsulta }}\\n\\nSu cita ha sido registrada exitosamente. Recibirá un recordatorio antes de su cita.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-notify",
+      "name": "Notificar por Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1050, 250],
+      "credentials": {
+        "telegramApi": "telegram-creds"
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{json: {success: true, message: 'Cita procesada correctamente'}}];"
+      },
+      "id": "success-response",
+      "name": "Respuesta Exitosa",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 250]
+    }
+  ],
+  "connections": {
+    "Trigger Gmail": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Asunto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Asunto": {
+      "main": [
+        [
+          {
+            "node": "Extraer Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Datos": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Sheets": {
+      "main": [
+        [
+          {
+            "node": "Notificar por Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar por Telegram": {
+      "main": [
+        [
+          {
+            "node": "Respuesta Exitosa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "gmail-citas-medicas"
+}
